@@ -1,5 +1,5 @@
 # Лабораторная работа 2
-```
+```cpp
 #include <iostream>
 #include <vector>
 #include <thread>
@@ -105,7 +105,7 @@ int main(int argc, char* argv[]) {
 }
 ```
 
-```
+```cpp
 #include <windows.h>
 #include <unordered_map>
 #include <list>
@@ -271,3 +271,6 @@ public:
     }
 };
 ```
+![benchmark_results1](https://github.com/user-attachments/assets/5ec0d035-a2bc-485a-a164-abe8fc3b8b9b)
+
+
