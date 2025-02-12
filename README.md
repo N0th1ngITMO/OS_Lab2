@@ -530,7 +530,7 @@ int lab2_fsync(int fd) {
     }
 }
 ```
-![benchmark_results1](https://github.com/user-attachments/assets/5ec0d035-a2bc-485a-a164-abe8fc3b8b9b)
-![benchmark_results](https://github.com/user-attachments/assets/cc072994-9f5c-44a8-bb28-fbb2d9d73322)
+![With Cache](https://github.com/user-attachments/assets/4feb5b6c-7b6b-4119-bbd9-3dc18489a1ee)
 
-Использование кеша MRU может ускорить выполнение программы, если данные имеют локальность по времени или часто повторяются. Однако, если данные распределены равномерно и нет повторяющихся элементов, то кеш MRU может не дать значительного прироста производительности. В моём случае, влияние кеша будет минимальным, потому что данные достаточно уникальны и распределены равномерно. Но стоит заметить, что обращений к памяти с кешем стало меньше, хотя и не кратно.
+![Without Cache](https://github.com/user-attachments/assets/f725ab60-91cb-40ab-8a77-dc909509310a)
+
