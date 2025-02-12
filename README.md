@@ -268,125 +268,37 @@ int main() {
 #include <codecvt>
 #include <sstream>
 #include "cache.h"
-#include <bits/unique_ptr.h>
+#include <bits/algorithmfwd.h>
+#include <cstdint>
 
-using namespace std;
-
-bool g_loggingEnabledCache = false;
-
-string getCurrentTimeCache() {
-    auto now = time(nullptr);
-    tm tm;
+std::string getCurrentTimeCache() {
+    auto now = std::time(nullptr);
+    std::tm tm;
     localtime_s(&tm, &now);
-    stringstream ss;
-    ss << put_time(&tm, "%Y-%m-%d %H:%M:%S");
+    std::stringstream ss;
+    ss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
     return ss.str();
 }
-
-#define LOG(x) if (g_loggingEnabledCache) cout << getCurrentTimeCache() << " " << x << endl;
-#define LOG_ERROR(x) if (g_loggingEnabledCache) cerr << getCurrentTimeCache() << " " << x << endl;
 
 const size_t PAGE_SIZE = 4096;
 const size_t NUM_OF_BLOCKS = 100;
 
 class BlockCache {
 public:
-    static BlockCache& getInstance(size_t cacheSize) {
+    static BlockCache &getInstance(size_t cacheSize = NUM_OF_BLOCKS) {
         static BlockCache instance(cacheSize);
         return instance;
     }
 
-    bool read(int fd, void *buf, size_t count, size_t offset) {
-        auto fileIt = cacheMap.find(fd);
-        if (fileIt != cacheMap.end()) {
-            auto &offsetMap = fileIt->second;
-            auto blockIt = offsetMap.find(offset);
-            if (blockIt != offsetMap.end()) {
-                cache.splice(cache.begin(), cache, blockIt->second);
-                memcpy(buf, blockIt->second->data, count);
-                return true;
-            }
-        }
-    
-        HANDLE handle = reinterpret_cast<HANDLE>(fd);
-        LARGE_INTEGER li;
-        li.QuadPart = offset;
-        SetFilePointerEx(handle, li, NULL, FILE_BEGIN);
-    
-        DWORD bytesRead;
-        if (!ReadFile(handle, alignedBuffer, PAGE_SIZE, &bytesRead, NULL)) {
-            return false;
-        }
-    
-        auto newBlock = make_unique<CacheBlock>();
-        memcpy(newBlock->data, alignedBuffer, PAGE_SIZE);
-        newBlock->fd = fd;
-        newBlock->offset = offset;
-    
-        cache.push_front(move(*newBlock));
-        cacheMap[fd][offset] = cache.begin();
-    
-        if (cache.size() > cacheSize) {
-            evict();
-        }
-    
-        memcpy(buf, alignedBuffer, count);
-        return true;
-    }
-    bool write(int fd, const void *buf, size_t count, size_t offset) {
-        auto fileIt = cacheMap.find(fd);
-        if (fileIt != cacheMap.end()) {
-            auto &offsetMap = fileIt->second;
-            auto blockIt = offsetMap.find(offset);
-            if (blockIt != offsetMap.end()) {
-                cache.splice(cache.begin(), cache, blockIt->second);
-                memcpy(blockIt->second->data, buf, count);
-                blockIt->second->dirty = true;
-                return true;
-            }
-        }
-    
-        auto newBlock = make_unique<CacheBlock>();
-        memcpy(newBlock->data, buf, count);
-        newBlock->fd = fd;
-        newBlock->offset = offset;
-        newBlock->dirty = true;
-    
-        cache.push_front(move(*newBlock));
-        cacheMap[fd][offset] = cache.begin();
-    
-        if (cache.size() > cacheSize) {
-            evict();
-        }
-    
-        return true;
-    }
-    void sync(int fd) {
-        auto fileIt = cacheMap.find(fd);
-        if (fileIt != cacheMap.end()) {
-            for (auto &blockEntry : fileIt->second) {
-                CacheBlock &block = *blockEntry.second;
-                if (block.dirty) {
-                    writeBlockToDisk(block);
-                    block.dirty = false;
-                }
-            }
-        }
-    }
-    void close(int fd) {
-        auto fileIt = cacheMap.find(fd);
-        if (fileIt != cacheMap.end()) {
-            for (auto &blockEntry : fileIt->second) {
-                cache.erase(blockEntry.second);
-            }
-            cacheMap.erase(fileIt);
-        }
-    }
+    bool read(int fd, void *buf, size_t count, size_t offset);
+    bool write(int fd, const void *buf, size_t count, size_t offset);
+    void sync(int fd);
+    void close(int fd);
 
 private:
     BlockCache(size_t cacheSize) : cacheSize(cacheSize), alignedBuffer(_aligned_malloc(PAGE_SIZE, PAGE_SIZE)) {
         if (!alignedBuffer) {
-            throw bad_alloc();
+            throw std::bad_alloc();
         }
     }
 
@@ -401,19 +313,108 @@ private:
         int fd;
         size_t offset;
         bool dirty;
+        size_t frequency;
 
-        CacheBlock() : data(_aligned_malloc(PAGE_SIZE, PAGE_SIZE)), fd(-1), offset(0), dirty(false) {}
+        CacheBlock() : data(_aligned_malloc(PAGE_SIZE, PAGE_SIZE)), fd(-1), offset(0), dirty(false), frequency(0) {}
     };
 
     size_t cacheSize;
-    list<CacheBlock> cache;
-    unordered_map<int, unordered_map<size_t, list<CacheBlock>::iterator>> cacheMap;
+    std::list<CacheBlock> cache;
+    std::unordered_map<int, std::unordered_map<size_t, std::list<CacheBlock>::iterator>> cacheMap;
     void *alignedBuffer;
 
     void evict();
     void writeBlockToDisk(const CacheBlock &block);
 };
 
+bool BlockCache::read(int fd, void *buf, size_t count, size_t offset) {
+    size_t alignedOffset = (offset / PAGE_SIZE) * PAGE_SIZE;
+    auto &fdMap = cacheMap[fd];
+    auto offsetIt = fdMap.find(alignedOffset);
+    if (offsetIt != fdMap.end()) {
+        memcpy(buf, static_cast<char*>(offsetIt->second->data) + (offset - alignedOffset), count);
+        offsetIt->second->frequency++;
+        return true;
+    }
+
+    HANDLE handle = reinterpret_cast<HANDLE>(fd);
+    LARGE_INTEGER li;
+    li.QuadPart = alignedOffset;
+    SetFilePointerEx(handle, li, NULL, FILE_BEGIN);
+
+    DWORD bytesRead = 0;
+    if (!ReadFile(handle, alignedBuffer, PAGE_SIZE, &bytesRead, NULL)) {
+        return false;
+    }
+
+    memcpy(buf, static_cast<char*>(alignedBuffer) + (offset - alignedOffset), count);
+
+    if (cache.size() >= cacheSize) evict();
+    CacheBlock newBlock;
+    memcpy(newBlock.data, alignedBuffer, PAGE_SIZE);
+    newBlock.fd = fd;
+    newBlock.offset = alignedOffset;
+    newBlock.dirty = false;
+    newBlock.frequency = 1;
+    cache.push_front(newBlock);
+    cacheMap[fd][alignedOffset] = cache.begin();
+
+    return true;
+}
+
+bool BlockCache::write(int fd, const void *buf, size_t count, size_t offset) {
+    size_t alignedOffset = (offset / PAGE_SIZE) * PAGE_SIZE;
+    auto &fdMap = cacheMap[fd];
+    auto offsetIt = fdMap.find(alignedOffset);
+    if (offsetIt != fdMap.end()) {
+        memcpy(static_cast<char*>(offsetIt->second->data) + (offset - alignedOffset), buf, count);
+        offsetIt->second->dirty = true;
+        offsetIt->second->frequency++;
+        return true;
+    }
+
+    HANDLE handle = reinterpret_cast<HANDLE>(fd);
+    LARGE_INTEGER li;
+    li.QuadPart = alignedOffset;
+    SetFilePointerEx(handle, li, NULL, FILE_BEGIN);
+    DWORD bytesRead = 0;
+    if (!ReadFile(handle, alignedBuffer, PAGE_SIZE, &bytesRead, NULL)) {
+        return false;
+    }
+
+    memcpy(static_cast<char*>(alignedBuffer) + (offset - alignedOffset), buf, count);
+
+    if (cache.size() >= cacheSize) evict();
+    CacheBlock newBlock;
+    memcpy(newBlock.data, alignedBuffer, PAGE_SIZE);
+    newBlock.fd = fd;
+    newBlock.offset = alignedOffset;
+    newBlock.dirty = true;
+    newBlock.frequency = 1;
+    cache.push_front(newBlock);
+    cacheMap[fd][alignedOffset] = cache.begin();
+
+    return true;
+}
+
+void BlockCache::sync(int fd) {
+    auto fdIt = cacheMap.find(fd);
+    if (fdIt != cacheMap.end()) {
+        for (auto &offsetIt : fdIt->second) {
+            if (offsetIt.second->dirty) {
+                writeBlockToDisk(*offsetIt.second);
+                offsetIt.second->dirty = false;
+            }
+            _aligned_free(offsetIt.second->data);
+            cache.erase(offsetIt.second);
+        }
+        cacheMap.erase(fdIt);
+    }
+}
+
+void BlockCache::close(int fd) {
+    sync(fd);
+}
 
 void BlockCache::evict()
 {
@@ -436,8 +437,7 @@ void BlockCache::writeBlockToDisk(const CacheBlock &block) {
     SetFilePointerEx(handle, li, NULL, FILE_BEGIN);
 
     DWORD bytesWritten = 0;
-    if (!WriteFile(handle, block.data, PAGE_SIZE, &bytesWritten, NULL)) {
-    }
+    WriteFile(handle, block.data, PAGE_SIZE, &bytesWritten, NULL);
 }
 
 int lab2_open(const char *path) {
@@ -454,7 +454,6 @@ int lab2_open(const char *path) {
     if (hFile == INVALID_HANDLE_VALUE) {
         return -1;
     }
-
     return reinterpret_cast<intptr_t>(hFile);
 }
 
@@ -468,7 +467,7 @@ ssize_t lab2_read(int fd, void *buf, size_t count) {
 
     size_t offset = static_cast<size_t>(currentPos.QuadPart);
 
-    if (BlockCache::getInstance(NUM_OF_BLOCKS).read(fd, buf, count, offset)) {
+    if (BlockCache::getInstance().read(fd, buf, count, offset)) {
         LARGE_INTEGER li;
         li.QuadPart = offset + count;
         if (!SetFilePointerEx(handle, li, NULL, FILE_BEGIN)) {
@@ -484,7 +483,7 @@ ssize_t lab2_read(int fd, void *buf, size_t count) {
 ssize_t lab2_write(int fd, const void *buf, size_t count, size_t offset) {
     HANDLE handle = reinterpret_cast<HANDLE>(fd);
 
-    if (BlockCache::getInstance(NUM_OF_BLOCKS).write(fd, buf, count, offset)) {
+    if (BlockCache::getInstance().write(fd, buf, count, offset)) {
         return static_cast<ssize_t>(count);
     }
 
@@ -494,7 +493,7 @@ ssize_t lab2_write(int fd, const void *buf, size_t count, size_t offset) {
 int lab2_close(int fd) {
     HANDLE handle = reinterpret_cast<HANDLE>(fd);
     if (handle != INVALID_HANDLE_VALUE) {
-        BlockCache::getInstance(NUM_OF_BLOCKS).close(fd);
+        BlockCache::getInstance().close(fd);
         if (CloseHandle(handle)) {
             return 0;
         } else {
@@ -521,8 +520,9 @@ int64_t lab2_lseek(int fd, int64_t offset, int whence) {
 }
 
 int lab2_fsync(int fd) {
+    LOG("[lab2_fsync] Syncing fd: " << fd << " with disk.")
     HANDLE handle = reinterpret_cast<HANDLE>(fd);
-    BlockCache::getInstance(NUM_OF_BLOCKS).sync(fd);
+    BlockCache::getInstance().sync(fd);
     if (FlushFileBuffers(handle)) {
         return 0;
     } else {
@@ -530,7 +530,8 @@ int lab2_fsync(int fd) {
     }
 }
 ```
-![With Cache](https://github.com/user-attachments/assets/4feb5b6c-7b6b-4119-bbd9-3dc18489a1ee)
+![With Cache](https://github.com/user-attachments/assets/813aeba8-4236-433d-b900-5a02395c5bfb)
+
 
 ![Without Cache](https://github.com/user-attachments/assets/f725ab60-91cb-40ab-8a77-dc909509310a)
 
