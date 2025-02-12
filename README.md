@@ -8,10 +8,6 @@
 #include "cache.h"
 #include <iomanip>
 
-bool g_loggingEnabledApp = false;
-
-#define LOG(x) if (g_loggingEnabledApp) cout << x << endl;
-#define LOG_ERROR(x) if (g_loggingEnabledApp) cerr << x << endl;
 
 string getCurrentTime() {
     auto now = chrono::system_clock::now();
