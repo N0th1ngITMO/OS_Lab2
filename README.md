@@ -520,7 +520,6 @@ int64_t lab2_lseek(int fd, int64_t offset, int whence) {
 }
 
 int lab2_fsync(int fd) {
-    LOG("[lab2_fsync] Syncing fd: " << fd << " with disk.")
     HANDLE handle = reinterpret_cast<HANDLE>(fd);
     BlockCache::getInstance().sync(fd);
     if (FlushFileBuffers(handle)) {
