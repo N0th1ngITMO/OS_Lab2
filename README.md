@@ -5,7 +5,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <chrono>
-#include "cache.h" // Updated cache module
+#include "cache.h"
 #include <iomanip>
 
 bool g_loggingEnabledApp = false;
@@ -27,7 +27,7 @@ void setLogging(bool enable) {
     g_loggingEnabledApp = enable;
 }
 
-const size_t FILE_SIZE = 8 * 1024 * 100; // 8MB
+const size_t FILE_SIZE = 8 * 1024 * 100;
 const size_t SECTOR_SIZE = 4096;
 const size_t ELEMENT_SIZE = sizeof(int);
 const size_t NUM_ELEMENTS = FILE_SIZE / ELEMENT_SIZE;
