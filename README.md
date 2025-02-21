@@ -537,7 +537,8 @@ int lab2_fsync(int fd) {
 ![image](https://github.com/user-attachments/assets/e8ec11e2-ccd9-45bb-9b76-0965797fd69b)
 ![image](https://github.com/user-attachments/assets/b4aa8985-723d-44b2-9523-c8bd90bd121d)
 
-
+![image](https://github.com/user-attachments/assets/eaec5421-c1e1-49b8-b119-367046ec1314)
+![image](https://github.com/user-attachments/assets/719c29d1-11f3-43e2-b906-4b04dc41f9f0)
 
 
 Не трудно заметить, что кеш сильно ускоряет рабоету программы, даже со столь неэффективным алгоритмом замены блоков как MRU.
