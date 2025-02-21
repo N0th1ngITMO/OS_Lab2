@@ -298,7 +298,7 @@ private:
     std::list<CacheBlock> cache;
     std::unordered_map<int, std::unordered_map<size_t, std::list<CacheBlock>::iterator>> cacheMap;
     void *alignedBuffer;
-    std::mutex cache_mutex;  // 🔹 Добавляем мьютекс для потокобезопасности
+    std::mutex cache_mutex;
 
     void evict();
     void writeBlockToDisk(const CacheBlock &block);
@@ -307,7 +307,7 @@ private:
 bool BlockCache::read(int fd, void *buf, size_t count, size_t offset) {
     size_t alignedOffset = (offset / PAGE_SIZE) * PAGE_SIZE;
 
-    std::lock_guard<std::mutex> lock(cache_mutex);  // 🔹 Защита доступа к кешу
+    std::lock_guard<std::mutex> lock(cache_mutex);
 
     auto &fdMap = cacheMap[fd];
     auto offsetIt = fdMap.find(alignedOffset);
@@ -345,7 +345,7 @@ bool BlockCache::read(int fd, void *buf, size_t count, size_t offset) {
 bool BlockCache::write(int fd, const void *buf, size_t count, size_t offset) {
     size_t alignedOffset = (offset / PAGE_SIZE) * PAGE_SIZE;
 
-    std::lock_guard<std::mutex> lock(cache_mutex);  // 🔹 Защита доступа к кешу
+    std::lock_guard<std::mutex> lock(cache_mutex);
 
     auto &fdMap = cacheMap[fd];
     auto offsetIt = fdMap.find(alignedOffset);
@@ -381,7 +381,7 @@ bool BlockCache::write(int fd, const void *buf, size_t count, size_t offset) {
 }
 
 void BlockCache::sync(int fd) {
-    std::lock_guard<std::mutex> lock(cache_mutex);  // 🔹 Защита доступа к кешу
+    std::lock_guard<std::mutex> lock(cache_mutex);
 
     auto fdIt = cacheMap.find(fd);
     if (fdIt != cacheMap.end()) {
@@ -402,8 +402,7 @@ void BlockCache::close(int fd) {
 }
 
 void BlockCache::evict() {
-    std::lock_guard<std::mutex> lock(cache_mutex);  // 🔹 Защита от одновременного удаления
-
+    std::lock_guard<std::mutex> lock(cache_mutex);  
     if (!cache.empty()) {
         auto it = cache.begin();
         if (it->dirty) {
@@ -446,7 +445,7 @@ int lab2_open(const char *path) {
 
 
 ssize_t lab2_read(int fd, void *buf, size_t count) {
-    std::lock_guard<std::mutex> lock(file_mutex);  // 🔹 Потокобезопасность работы с файлом
+    std::lock_guard<std::mutex> lock(file_mutex);
 
     if (BlockCache::getInstance().read(fd, buf, count, 0)) {
         return static_cast<ssize_t>(count);
@@ -455,7 +454,7 @@ ssize_t lab2_read(int fd, void *buf, size_t count) {
 }
 
 ssize_t lab2_write(int fd, const void *buf, size_t count, size_t offset) {
-    std::lock_guard<std::mutex> lock(file_mutex);  // 🔹 Потокобезопасность записи в файл
+    std::lock_guard<std::mutex> lock(file_mutex);
 
     if (BlockCache::getInstance().write(fd, buf, count, offset)) {
         return static_cast<ssize_t>(count);
@@ -464,7 +463,7 @@ ssize_t lab2_write(int fd, const void *buf, size_t count, size_t offset) {
 }
 
 int lab2_fsync(int fd) {
-    std::lock_guard<std::mutex> lock(file_mutex);  // 🔹 Потокобезопасность синхронизации
+    std::lock_guard<std::mutex> lock(file_mutex);
     BlockCache::getInstance().sync(fd);
     return 0;
 }
