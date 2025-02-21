@@ -28,12 +28,9 @@ string getCurrentTime() {
     return ss.str();
 }
 
-// Потокобезопасное получение элемента
 bool get_element(int fd, size_t index, int &value, void *alignedBuffer) {
     size_t offset = (index * ELEMENT_SIZE) / SECTOR_SIZE * SECTOR_SIZE;
     size_t alignedSize = SECTOR_SIZE;
-
-    // std::lock_guard<std::mutex> lock(file_mutex);  // Защита доступа
 
     if (lab2_lseek(fd, offset, SEEK_SET) == -1) {
         return false;
@@ -47,12 +44,9 @@ bool get_element(int fd, size_t index, int &value, void *alignedBuffer) {
     return true;
 }
 
-// Потокобезопасная установка элемента
 bool set_element(int fd, size_t index, int value, void *alignedBuffer) {
     size_t offset = (index * ELEMENT_SIZE) / SECTOR_SIZE * SECTOR_SIZE;
     size_t alignedSize = SECTOR_SIZE;
-
-    // std::lock_guard<std::mutex> lock(file_mutex);  // Защита доступа
 
     if (lab2_lseek(fd, offset, SEEK_SET) == -1) {
         return false;
@@ -74,13 +68,10 @@ bool set_element(int fd, size_t index, int value, void *alignedBuffer) {
     return true;
 }
 
-// Потокобезопасная замена элементов
 bool swap_elements(int fd, size_t index1, size_t index2, void *alignedBuffer) {
     if (index1 == index2) {
         return true;
     }
-
-    std::lock_guard<std::mutex> lock(file_mutex);  // Защита доступа
 
     int val1, val2;
     if (!get_element(fd, index1, val1, alignedBuffer)) return false;
@@ -109,9 +100,8 @@ bool verify_sorted(int fd, void *alignedBuffer) {
     return true;
 }
 
-// Быстрая сортировка с мьютексом
 bool quicksort(int fd, int low, int high, void *alignedBuffer) {
-    if (low >= high) return true;  // Защита от зацикливания
+    if (low >= high) return true;
 
     int pivot;
     if (!get_element(fd, high, pivot, alignedBuffer)) return false;
@@ -128,7 +118,6 @@ bool quicksort(int fd, int low, int high, void *alignedBuffer) {
 
     if (!swap_elements(fd, i + 1, high, alignedBuffer)) return false;
 
-    // Рекурсивный вызов с проверкой
     if (!quicksort(fd, low, i, alignedBuffer)) return false;
     if (!quicksort(fd, i + 2, high, alignedBuffer)) return false;
 
@@ -136,12 +125,10 @@ bool quicksort(int fd, int low, int high, void *alignedBuffer) {
 }
 
 
-// Запуск сортировки части файла в потоке
 void sort_part(int fd, int start, int end, void *alignedBuffer) {
     quicksort(fd, start, end, alignedBuffer);
 }
 
-// Объединение отсортированных частей
 bool merge_sorted_parts(int fd, int num_threads, int part_size, void *alignedBuffer) {
     cout << "[merge] Объединение отсортированных частей..." << endl;
     
@@ -159,7 +146,6 @@ bool merge_sorted_parts(int fd, int num_threads, int part_size, void *alignedBuf
         }
     }
 
-    // Записываем объединенные данные обратно в файл
     for (size_t i = 0; i < NUM_ELEMENTS; i++) {
         if (!set_element(fd, i, merged[i], alignedBuffer)) return false;
     }
@@ -192,7 +178,6 @@ int main(int argc, char* argv[]) {
 
     vector<thread> threads;
 
-    // Запускаем сортировку в потоках
     for (int i = 0; i < num_threads; i++) {
         int start = i * part_size;
         int end = min(start + part_size, (int)NUM_ELEMENTS);
@@ -202,7 +187,6 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Ждем завершения всех потоков
     cout << "[main] Ожидание завершения потоков..." << endl;
     for (auto &thread : threads) {
         if (thread.joinable()) {
@@ -211,7 +195,6 @@ int main(int argc, char* argv[]) {
     }
     cout << "[main] Все потоки завершены." << endl;
 
-    // Объединяем отсортированные части
     if (!merge_sorted_parts(fd, num_threads, part_size, alignedBuffer)) {
         _aligned_free(alignedBuffer);
         lab2_close(fd);
@@ -220,7 +203,6 @@ int main(int argc, char* argv[]) {
 
     cout << "[main] " << getCurrentTime() << " Сортировка завершена." << endl;
 
-    // Проверяем правильность сортировки
     if (verify_sorted(fd, alignedBuffer)) {
         cout << "[main] Файл отсортирован корректно." << endl;
     }
