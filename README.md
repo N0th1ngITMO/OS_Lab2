@@ -493,7 +493,7 @@ int64_t lab2_lseek(int fd, int64_t offset, int whence) {
 ![image](https://github.com/user-attachments/assets/e8ec11e2-ccd9-45bb-9b76-0965797fd69b)
 ![image](https://github.com/user-attachments/assets/b4aa8985-723d-44b2-9523-c8bd90bd121d)
 
-![image](https://github.com/user-attachments/assets/eaec5421-c1e1-49b8-b119-367046ec1314)
+![image](https://github.com/user-attachments/assets/2b8b7f2d-1f02-42bc-bd06-479764c2a2df)
 ![image](https://github.com/user-attachments/assets/c9fc5fe6-ad7f-4904-8b22-7ea48950e742)
 
 
