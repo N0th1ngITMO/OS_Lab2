@@ -494,7 +494,8 @@ int64_t lab2_lseek(int fd, int64_t offset, int whence) {
 ![image](https://github.com/user-attachments/assets/b4aa8985-723d-44b2-9523-c8bd90bd121d)
 
 ![image](https://github.com/user-attachments/assets/eaec5421-c1e1-49b8-b119-367046ec1314)
-![image](https://github.com/user-attachments/assets/719c29d1-11f3-43e2-b906-4b04dc41f9f0)
+![image](https://github.com/user-attachments/assets/c9fc5fe6-ad7f-4904-8b22-7ea48950e742)
+
 
 
 Не трудно заметить, что кеш сильно ускоряет рабоету программы, даже со столь неэффективным алгоритмом замены блоков как MRU.
