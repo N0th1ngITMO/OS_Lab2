@@ -531,8 +531,10 @@ int lab2_fsync(int fd) {
 ![Without Cache](https://github.com/user-attachments/assets/f725ab60-91cb-40ab-8a77-dc909509310a)-->
 
 ![image](https://github.com/user-attachments/assets/8071abdc-b228-4a00-869a-57e698289b23)
-![image](https://github.com/user-attachments/assets/9613d8e9-0125-4dc9-b279-b5d114d29aa5)
+![image](https://github.com/user-attachments/assets/36e80cbd-fccf-4a7e-841a-d9a0e3b88422)
 
+![image](https://github.com/user-attachments/assets/e8ec11e2-ccd9-45bb-9b76-0965797fd69b)
+![image](https://github.com/user-attachments/assets/b4aa8985-723d-44b2-9523-c8bd90bd121d)
 
 
 
