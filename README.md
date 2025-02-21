@@ -2,12 +2,21 @@
 ```cpp
 // app.cpp
 #include <iostream>
+#include <vector>
+#include <thread>
+#include <mutex>
 #include <cstdlib>
 #include <ctime>
 #include <chrono>
 #include "cache.h"
 #include <iomanip>
 
+using namespace std;
+
+const size_t FILE_SIZE = 8 * 1024 * 100;
+const size_t SECTOR_SIZE = 4096;
+const size_t ELEMENT_SIZE = sizeof(int);
+const size_t NUM_ELEMENTS = FILE_SIZE / ELEMENT_SIZE;
 
 string getCurrentTime() {
     auto now = chrono::system_clock::now();
@@ -19,80 +28,12 @@ string getCurrentTime() {
     return ss.str();
 }
 
-void setLogging(bool enable) {
-    g_loggingEnabledApp = enable;
-}
-
-const size_t FILE_SIZE = 8 * 1024 * 100;
-const size_t SECTOR_SIZE = 4096;
-const size_t ELEMENT_SIZE = sizeof(int);
-const size_t NUM_ELEMENTS = FILE_SIZE / ELEMENT_SIZE;
-
-bool get_element(int fd, size_t index, int &value, void *alignedBuffer);
-
-bool set_element(int fd, size_t index, int value, void *alignedBuffer);
-
-bool swap_elements(int fd, size_t index1, size_t index2, void *alignedBuffer);
-
-bool create_file(const char *path) {
-    
-    int fd = lab2_open(path);
-    if (fd == -1) {
-        return false;
-    }
-
-    srand(static_cast<unsigned>(time(nullptr)));
-
-    for (size_t i = 0; i < NUM_ELEMENTS; ++i) {
-        int value = rand();
-        if (lab2_write(fd, &value, ELEMENT_SIZE, i*sizeof(value)) != static_cast<ssize_t>(ELEMENT_SIZE)) {
-            lab2_close(fd);
-            return false;
-        }
-    }
-
-    if (lab2_fsync(fd) != 0) {
-        lab2_close(fd);
-        return false;
-    }
-    if (lab2_close(fd) != 0) {
-        return false;
-    }
-    return true;
-}
-
-bool swap_elements(int fd, size_t index1, size_t index2, void *alignedBuffer) {
-    if (index1 == index2) {
-        return true;
-    }
-    int val1, val2;
-
-    if (!get_element(fd, index1, val1, alignedBuffer)) {
-        return false;
-    }
-
-    if (!get_element(fd, index2, val2, alignedBuffer)) {
-        return false;
-    }
-
-    if (val1 == val2) {
-        return true;
-    }
-
-    if (!set_element(fd, index2, val1, alignedBuffer)) {
-        return false;
-    }
-
-    if (!set_element(fd, index1, val2, alignedBuffer)) {
-        return false;
-    }
-
-    return true;
-}
-
+// Потокобезопасное получение элемента
 bool get_element(int fd, size_t index, int &value, void *alignedBuffer) {
     size_t offset = (index * ELEMENT_SIZE) / SECTOR_SIZE * SECTOR_SIZE;
     size_t alignedSize = SECTOR_SIZE;
+
+    // std::lock_guard<std::mutex> lock(file_mutex);  // Защита доступа
 
     if (lab2_lseek(fd, offset, SEEK_SET) == -1) {
         return false;
@@ -100,14 +41,18 @@ bool get_element(int fd, size_t index, int &value, void *alignedBuffer) {
     if (lab2_read(fd, alignedBuffer, alignedSize) != static_cast<ssize_t>(alignedSize)) {
         return false;
     }
+
     size_t offsetInBuffer = (index * ELEMENT_SIZE) % SECTOR_SIZE;
     value = *(int *)((char *)alignedBuffer + offsetInBuffer);
     return true;
 }
 
+// Потокобезопасная установка элемента
 bool set_element(int fd, size_t index, int value, void *alignedBuffer) {
     size_t offset = (index * ELEMENT_SIZE) / SECTOR_SIZE * SECTOR_SIZE;
     size_t alignedSize = SECTOR_SIZE;
+
+    // std::lock_guard<std::mutex> lock(file_mutex);  // Защита доступа
 
     if (lab2_lseek(fd, offset, SEEK_SET) == -1) {
         return false;
@@ -129,16 +74,23 @@ bool set_element(int fd, size_t index, int value, void *alignedBuffer) {
     return true;
 }
 
-bool print_first_n(int fd, int n, void *alignedBuffer) {
-    cout << "[print_first_n] Printing first " << n << " elements:" << endl;
-    for (int i = 0; i < n; ++i) {
-        int value;
-        if (!get_element(fd, i, value, alignedBuffer)) {
-            return false;
-        }
-        cout << value << " ";
+// Потокобезопасная замена элементов
+bool swap_elements(int fd, size_t index1, size_t index2, void *alignedBuffer) {
+    if (index1 == index2) {
+        return true;
     }
-    cout << endl;
+
+    std::lock_guard<std::mutex> lock(file_mutex);  // Защита доступа
+
+    int val1, val2;
+    if (!get_element(fd, index1, val1, alignedBuffer)) return false;
+    if (!get_element(fd, index2, val2, alignedBuffer)) return false;
+
+    if (val1 == val2) return true;
+
+    if (!set_element(fd, index2, val1, alignedBuffer)) return false;
+    if (!set_element(fd, index1, val2, alignedBuffer)) return false;
+
     return true;
 }
 
@@ -157,97 +109,134 @@ bool verify_sorted(int fd, void *alignedBuffer) {
     return true;
 }
 
-int partition(int fd, int low, int high, void *alignedBuffer) {
+// Быстрая сортировка с мьютексом
+bool quicksort(int fd, int low, int high, void *alignedBuffer) {
+    if (low >= high) return true;  // Защита от зацикливания
+
     int pivot;
-    if (!get_element(fd, high, pivot, alignedBuffer)) {
-        return -1;
-    }
+    if (!get_element(fd, high, pivot, alignedBuffer)) return false;
 
     int i = low - 1;
-
     for (int j = low; j <= high - 1; j++) {
         int current;
-        if (!get_element(fd, j, current, alignedBuffer)) {
-            return -1;
-        }
+        if (!get_element(fd, j, current, alignedBuffer)) return false;
         if (current < pivot) {
             ++i;
-            if (i != j) {
-                if (!swap_elements(fd, i, j, alignedBuffer)) {
-                    return -1;
-                }
-            }
+            if (!swap_elements(fd, i, j, alignedBuffer)) return false;
         }
     }
 
-    if (!swap_elements(fd, i + 1, high, alignedBuffer)) {
-        return -1;
-    }
+    if (!swap_elements(fd, i + 1, high, alignedBuffer)) return false;
 
-    return i + 1;
-}
+    // Рекурсивный вызов с проверкой
+    if (!quicksort(fd, low, i, alignedBuffer)) return false;
+    if (!quicksort(fd, i + 2, high, alignedBuffer)) return false;
 
-bool quicksort(int fd, int low, int high, void *alignedBuffer) {
-    if (low < high) {
-        int pi = partition(fd, low, high, alignedBuffer);
-        if (pi == -1) {
-            return false;
-        }
-
-        if (!quicksort(fd, low, pi - 1, alignedBuffer)) {
-            return false;
-        }
-        if (!quicksort(fd, pi + 1, high, alignedBuffer)) {
-            return false;
-        }
-    }
     return true;
 }
 
-int main() {
-    const char *file_path = "data.bin";
-    cout << "[main] " << getCurrentTime() << "Starting program. File path: " << file_path << endl;
 
-    if (!create_file(file_path)) {
-        return EXIT_FAILURE;
+// Запуск сортировки части файла в потоке
+void sort_part(int fd, int start, int end, void *alignedBuffer) {
+    quicksort(fd, start, end, alignedBuffer);
+}
+
+// Объединение отсортированных частей
+bool merge_sorted_parts(int fd, int num_threads, int part_size, void *alignedBuffer) {
+    cout << "[merge] Объединение отсортированных частей..." << endl;
+    
+    vector<int> merged(NUM_ELEMENTS);
+    int idx = 0;
+
+    for (int i = 0; i < num_threads; i++) {
+        int start = i * part_size;
+        int end = min(start + part_size, (int)NUM_ELEMENTS);
+
+        for (int j = start; j < end; j++) {
+            int value;
+            if (!get_element(fd, j, value, alignedBuffer)) return false;
+            merged[idx++] = value;
+        }
     }
+
+    // Записываем объединенные данные обратно в файл
+    for (size_t i = 0; i < NUM_ELEMENTS; i++) {
+        if (!set_element(fd, i, merged[i], alignedBuffer)) return false;
+    }
+
+    return true;
+}
+
+int main(int argc, char* argv[]) {
+    if (argc != 3) {
+        cerr << "Usage: " << argv[0] << " <input_file> <num_threads>" << endl;
+        return 1;
+    }
+    const char *file_path = argv[1];
+    cout << "[main] " << getCurrentTime() << " Начало программы. Файл: " << file_path << endl;
 
     int fd = lab2_open(file_path);
     if (fd == -1) {
+        cerr << "[ERROR] Не удалось открыть файл!" << endl;
         return EXIT_FAILURE;
     }
 
     void *alignedBuffer = _aligned_malloc(SECTOR_SIZE, SECTOR_SIZE);
     if (!alignedBuffer) {
+        cerr << "[ERROR] Ошибка выделения памяти!" << endl;
         return EXIT_FAILURE;
     }
 
-    print_first_n(fd, 10, alignedBuffer)
+    size_t num_threads = std::stoul(argv[2]);
+    int part_size = (NUM_ELEMENTS + num_threads - 1) / num_threads;
 
-    if (!quicksort(fd, 0, static_cast<int>(NUM_ELEMENTS - 1), alignedBuffer)) {
+    vector<thread> threads;
+
+    // Запускаем сортировку в потоках
+    for (int i = 0; i < num_threads; i++) {
+        int start = i * part_size;
+        int end = min(start + part_size, (int)NUM_ELEMENTS);
+        
+        if (start < NUM_ELEMENTS && end > start) {  // Проверка на пустые диапазоны
+            threads.emplace_back(sort_part, fd, start, end - 1, alignedBuffer);
+        }
+    }
+
+    // Ждем завершения всех потоков
+    cout << "[main] Ожидание завершения потоков..." << endl;
+    for (auto &thread : threads) {
+        if (thread.joinable()) {
+            thread.join();
+        }
+    }
+    cout << "[main] Все потоки завершены." << endl;
+
+    // Объединяем отсортированные части
+    if (!merge_sorted_parts(fd, num_threads, part_size, alignedBuffer)) {
         _aligned_free(alignedBuffer);
-        lab2_close(fd)
+        lab2_close(fd);
         return EXIT_FAILURE;
     }
-    cout << "[main] " << getCurrentTime() << "sort completed: " << endl;
 
-    print_first_n(fd, 10, alignedBuffer)
+    cout << "[main] " << getCurrentTime() << " Сортировка завершена." << endl;
 
+    // Проверяем правильность сортировки
     if (verify_sorted(fd, alignedBuffer)) {
-        cout << "[main] File has been sorted correctly." << endl;
+        cout << "[main] Файл отсортирован корректно." << endl;
     }
 
     if (lab2_fsync(fd) != 0) {
         _aligned_free(alignedBuffer);
-        lab2_close(fd)
+        lab2_close(fd);
         return EXIT_FAILURE;
     }
     if (lab2_close(fd) != 0) {
         _aligned_free(alignedBuffer);
         return EXIT_FAILURE;
     }
+
     _aligned_free(alignedBuffer);
-    cout << "[main] " << getCurrentTime() << "all done " << endl;
+    cout << "[main] " << getCurrentTime() << " Завершение программы." << endl;
 
     return EXIT_SUCCESS;
 }
@@ -263,21 +252,12 @@ int main() {
 #include <locale>
 #include <codecvt>
 #include <sstream>
+#include <mutex>
 #include "cache.h"
-#include <bits/algorithmfwd.h>
-#include <cstdint>
-
-std::string getCurrentTimeCache() {
-    auto now = std::time(nullptr);
-    std::tm tm;
-    localtime_s(&tm, &now);
-    std::stringstream ss;
-    ss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
-    return ss.str();
-}
 
 const size_t PAGE_SIZE = 4096;
 const size_t NUM_OF_BLOCKS = 100;
+std::mutex file_mutex;
 
 class BlockCache {
 public:
@@ -318,6 +298,7 @@ private:
     std::list<CacheBlock> cache;
     std::unordered_map<int, std::unordered_map<size_t, std::list<CacheBlock>::iterator>> cacheMap;
     void *alignedBuffer;
+    std::mutex cache_mutex;  // 🔹 Добавляем мьютекс для потокобезопасности
 
     void evict();
     void writeBlockToDisk(const CacheBlock &block);
@@ -325,6 +306,9 @@ private:
 
 bool BlockCache::read(int fd, void *buf, size_t count, size_t offset) {
     size_t alignedOffset = (offset / PAGE_SIZE) * PAGE_SIZE;
+
+    std::lock_guard<std::mutex> lock(cache_mutex);  // 🔹 Защита доступа к кешу
+
     auto &fdMap = cacheMap[fd];
     auto offsetIt = fdMap.find(alignedOffset);
     if (offsetIt != fdMap.end()) {
@@ -360,6 +344,9 @@ bool BlockCache::read(int fd, void *buf, size_t count, size_t offset) {
 
 bool BlockCache::write(int fd, const void *buf, size_t count, size_t offset) {
     size_t alignedOffset = (offset / PAGE_SIZE) * PAGE_SIZE;
+
+    std::lock_guard<std::mutex> lock(cache_mutex);  // 🔹 Защита доступа к кешу
+
     auto &fdMap = cacheMap[fd];
     auto offsetIt = fdMap.find(alignedOffset);
     if (offsetIt != fdMap.end()) {
@@ -394,6 +381,8 @@ bool BlockCache::write(int fd, const void *buf, size_t count, size_t offset) {
 }
 
 void BlockCache::sync(int fd) {
+    std::lock_guard<std::mutex> lock(cache_mutex);  // 🔹 Защита доступа к кешу
+
     auto fdIt = cacheMap.find(fd);
     if (fdIt != cacheMap.end()) {
         for (auto &offsetIt : fdIt->second) {
@@ -412,8 +401,9 @@ void BlockCache::close(int fd) {
     sync(fd);
 }
 
-void BlockCache::evict()
-{
+void BlockCache::evict() {
+    std::lock_guard<std::mutex> lock(cache_mutex);  // 🔹 Защита от одновременного удаления
+
     if (!cache.empty()) {
         auto it = cache.begin();
         if (it->dirty) {
@@ -437,6 +427,7 @@ void BlockCache::writeBlockToDisk(const CacheBlock &block) {
 }
 
 int lab2_open(const char *path) {
+    std::lock_guard<std::mutex> lock(file_mutex);
     HANDLE hFile = CreateFileA(
             path,
             GENERIC_READ | GENERIC_WRITE,
@@ -453,40 +444,33 @@ int lab2_open(const char *path) {
     return reinterpret_cast<intptr_t>(hFile);
 }
 
+
 ssize_t lab2_read(int fd, void *buf, size_t count) {
-    HANDLE handle = reinterpret_cast<HANDLE>(fd);
+    std::lock_guard<std::mutex> lock(file_mutex);  // 🔹 Потокобезопасность работы с файлом
 
-    LARGE_INTEGER currentPos;
-    if (!SetFilePointerEx(handle, {0}, &currentPos, FILE_CURRENT)) {
-        return -1;
-    }
-
-    size_t offset = static_cast<size_t>(currentPos.QuadPart);
-
-    if (BlockCache::getInstance().read(fd, buf, count, offset)) {
-        LARGE_INTEGER li;
-        li.QuadPart = offset + count;
-        if (!SetFilePointerEx(handle, li, NULL, FILE_BEGIN)) {
-            return -1;
-        }
-
+    if (BlockCache::getInstance().read(fd, buf, count, 0)) {
         return static_cast<ssize_t>(count);
     }
-
     return -1;
 }
 
 ssize_t lab2_write(int fd, const void *buf, size_t count, size_t offset) {
-    HANDLE handle = reinterpret_cast<HANDLE>(fd);
+    std::lock_guard<std::mutex> lock(file_mutex);  // 🔹 Потокобезопасность записи в файл
 
     if (BlockCache::getInstance().write(fd, buf, count, offset)) {
         return static_cast<ssize_t>(count);
     }
-
     return -1;
 }
 
+int lab2_fsync(int fd) {
+    std::lock_guard<std::mutex> lock(file_mutex);  // 🔹 Потокобезопасность синхронизации
+    BlockCache::getInstance().sync(fd);
+    return 0;
+}
+
 int lab2_close(int fd) {
+    std::lock_guard<std::mutex> lock(file_mutex);
     HANDLE handle = reinterpret_cast<HANDLE>(fd);
     if (handle != INVALID_HANDLE_VALUE) {
         BlockCache::getInstance().close(fd);
@@ -500,6 +484,7 @@ int lab2_close(int fd) {
 }
 
 int64_t lab2_lseek(int fd, int64_t offset, int whence) {
+    std::lock_guard<std::mutex> lock(file_mutex);
     HANDLE handle = reinterpret_cast<HANDLE>(fd);
     LARGE_INTEGER li;
     li.QuadPart = offset;
@@ -513,16 +498,6 @@ int64_t lab2_lseek(int fd, int64_t offset, int whence) {
     }
 
     return static_cast<int64_t>(newPos.QuadPart);
-}
-
-int lab2_fsync(int fd) {
-    HANDLE handle = reinterpret_cast<HANDLE>(fd);
-    BlockCache::getInstance().sync(fd);
-    if (FlushFileBuffers(handle)) {
-        return 0;
-    } else {
-        return -1;
-    }
 }
 ```
 <!--![With Cache](https://github.com/user-attachments/assets/813aeba8-4236-433d-b900-5a02395c5bfb)
