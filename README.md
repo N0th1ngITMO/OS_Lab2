@@ -525,10 +525,17 @@ int lab2_fsync(int fd) {
     }
 }
 ```
-![With Cache](https://github.com/user-attachments/assets/813aeba8-4236-433d-b900-5a02395c5bfb)
+<!--![With Cache](https://github.com/user-attachments/assets/813aeba8-4236-433d-b900-5a02395c5bfb)
 
 
-![Without Cache](https://github.com/user-attachments/assets/f725ab60-91cb-40ab-8a77-dc909509310a)
+![Without Cache](https://github.com/user-attachments/assets/f725ab60-91cb-40ab-8a77-dc909509310a)-->
+
+![image](https://github.com/user-attachments/assets/8071abdc-b228-4a00-869a-57e698289b23)
+![image](https://github.com/user-attachments/assets/9613d8e9-0125-4dc9-b279-b5d114d29aa5)
+
+
+
+
 
 Не трудно заметить, что кеш сильно ускоряет рабоету программы, даже со столь неэффективным алгоритмом замены блоков как MRU.
 Это происходит по тем причинам, что:  
